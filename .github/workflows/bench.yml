@@ -1,0 +1,43 @@
+name: bench
+on: workflow_dispatch
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq btrfs-progs bc >/dev/null
+          uname -a; btrfs --version; nproc; free -m; df -h /mnt
+          sudo modprobe kyber-iosched || true; sudo modprobe bfq || true
+      - name: Build base image
+        run: |
+          sudo mkdir -p /mnt/bench/fs && sudo chown -R $USER /mnt/bench
+          truncate -s 12G /mnt/bench/base.img
+          mkfs.btrfs -q -f /mnt/bench/base.img
+          dev=$(sudo losetup -f --show /mnt/bench/base.img)
+          sudo mount -o compress-force=zstd,noatime $dev /mnt/bench/fs
+          sudo chown $USER /mnt/bench/fs
+          time python3 fill.py /mnt/bench/fs
+          sudo btrfs filesystem usage /mnt/bench/fs
+          sudo umount /mnt/bench/fs; sudo losetup -d $dev
+          cat /sys/block/loop0/queue/scheduler || true
+      - name: Balance cost (3 reps, interleaved)
+        run: |
+          echo "label,rep,pass,seconds,written_mib,unallocated_gain_mib,chunks" | tee balance.csv
+          for rep in 1 2 3; do
+            sudo bash bench.sh current "-dusage=50 -musage=50" $rep | tee -a balance.csv
+            sudo bash bench.sh d10 "-dusage=10" $rep | tee -a balance.csv
+            sudo bash bench.sh d10m5 "-dusage=10 -musage=5" $rep | tee -a balance.csv
+          done
+      - name: Game read during balance (3 reps, interleaved)
+        run: |
+          echo "scheduler,rep,alone_s,during_balance_s" | tee contend.csv
+          for rep in 1 2 3; do
+            for s in kyber bfq; do sudo bash contend.sh $s $rep | tee -a contend.csv; done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: "*.csv"
