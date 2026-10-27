@@ -1,0 +1,38 @@
+#!/bin/bash 
+
+# Verify if / and /root use btrfs and in same partition
+# run balance to improve speed and turn free space really free
+
+FolderRoot=$(btrfs device stats / | tail -n1 | cut -f1 -d] | cut -f2 -d[)
+
+FolderHome=$(btrfs device stats /home | tail -n1 | cut -f1 -d] | cut -f2 -d[)
+
+# A usage filter also picks the last, partly filled chunk that the previous
+# balance just packed, so a filesystem that changed little since then has the
+# same data rewritten on every boot and frees nothing. Only balance a type
+# whose allocated-but-unused space adds up to a whole 1 GiB chunk.
+balance() {
+    local filters=()
+    while read -r type slack; do
+        if (( slack >= 1073741824 )); then
+            [[ $type == Data ]] && filters+=(-dusage=50)
+            [[ $type == Metadata ]] && filters+=(-musage=50)
+        fi
+    done < <(btrfs filesystem df -b "$1" | awk -F'[ ,=]+' '$1 == "Data" || $1 == "Metadata" {
+        for (i = 2; i < NF; i++) { if ($i == "total") t[$1] += $(i+1); if ($i == "used") u[$1] += $(i+1) }
+    } END { for (k in t) print k, t[k] - u[k] }')
+
+    if (( ${#filters[@]} )); then
+        nice -n+20 ionice -c 3 btrfs balance start "${filters[@]}" "$1"
+    fi
+}
+
+if [ "$FolderRoot" != "" ]; then
+    balance /
+fi
+
+if [ "$FolderHome" != "" ] && [ "$FolderHome" != "$FolderRoot" ]; then
+    balance /home
+fi
+
+

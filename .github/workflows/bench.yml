@@ -37,10 +37,18 @@ jobs:
             sudo bash bench.sh d10m5 "-dusage=10 -musage=5" $rep | tee -a balance.csv
           done
       - name: Which chunks the next boots rewrite (3 boots)
+        if: inputs.full
         run: |
           echo "label,rep,pass,seconds,written_mib,unallocated_gain_mib,chunks" | tee steady.csv
           for f in "current|-dusage=50 -musage=50" "d50|-dusage=50" "m50|-musage=50" "d50m5|-dusage=50 -musage=5"; do
             sudo PASSES=3 SHOW_DF=1 bash bench.sh "${f%%|*}" "${f#*|}" 1 | tee -a steady.csv
+          done
+      - name: Original vs patched big-btrfs-balance (3 boots, 3 reps)
+        run: |
+          echo "label,boot,seconds,written_mib,unallocated_gain_mib" | tee script.csv
+          for rep in 1 2 3; do
+            sudo bash script.sh original big-btrfs-balance.orig | tee -a script.csv
+            sudo bash script.sh patched big-btrfs-balance.patched | tee -a script.csv
           done
       - name: Game read during balance (3 reps, interleaved)
         run: |
