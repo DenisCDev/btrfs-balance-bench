@@ -10,8 +10,8 @@ cp --sparse=always $W/base.img $W/run.img
 dev=$(losetup --direct-io=on -f --show $W/run.img)
 mount -o compress-force=zstd,noatime "$dev" $W/fs
 name=$(basename "$dev")
-sed -e "s#btrfs device stats /home#btrfs device stats $W/fs#" \
-    -e "s#btrfs device stats /#btrfs device stats $W/fs#" \
+sed -e "s#btrfs device stats /home |#btrfs device stats $W/fs |#" \
+    -e "s#btrfs device stats / |#btrfs device stats $W/fs |#" \
     -e "s#balance start -dusage=50 -musage=50 /home#balance start -dusage=50 -musage=50 $W/fs#" \
     -e "s#balance start -dusage=50 -musage=50 /\$#balance start -dusage=50 -musage=50 $W/fs#" \
     -e "s#^    balance /home\$#    balance $W/fs#" -e "s#^    balance /\$#    balance $W/fs#" \
