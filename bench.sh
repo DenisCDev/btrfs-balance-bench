@@ -10,11 +10,12 @@ mount -o compress-force=zstd,noatime "$dev" $W/fs
 name=$(basename "$dev")
 unalloc() { btrfs filesystem usage -b $W/fs | awk '/Device unallocated/ {print $3}'; }
 written() { awk '{print $7}' /sys/block/$name/stat; }
-for pass in 1 2; do
+for pass in $(seq 1 "${PASSES:-2}"); do
     sync; echo 3 > /proc/sys/vm/drop_caches
     u0=$(unalloc); w0=$(written); t0=$(date +%s.%N)
     # shellcheck disable=SC2086
     out=$(nice -n 19 ionice -c 3 btrfs balance start $filters $W/fs 2>&1 | tail -n1)
+    [[ -n ${SHOW_DF:-} ]] && btrfs filesystem df -b $W/fs | sed "s/^/# $label pass $pass: /" >&2
     sync
     t1=$(date +%s.%N); w1=$(written); u1=$(unalloc)
     chunks=$(sed -n 's/.*relocate \([0-9]*\) out of \([0-9]*\).*/\1\/\2/p' <<<"$out")
