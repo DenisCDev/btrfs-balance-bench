@@ -1,0 +1,44 @@
+name: small
+# A 5 GiB filesystem, where data chunks are 512 MiB (10% of the size), with
+# 768 MiB of unused data space in two 25%-used chunks. Original script vs the
+# first patch (fixed 1 GiB data threshold) vs the current one.
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/small.yml, big-btrfs-balance.patched, script.sh]
+jobs:
+  small:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq btrfs-progs bc >/dev/null && btrfs --version
+      - name: Build 5 GiB base image
+        run: |
+          sudo mkdir -p /mnt/bench/fs && sudo chown -R $USER /mnt/bench
+          truncate -s 5G /mnt/bench/base.img
+          mkfs.btrfs -q -f /mnt/bench/base.img
+          dev=$(sudo losetup -f --show /mnt/bench/base.img)
+          sudo mount -o compress-force=zstd,noatime $dev /mnt/bench/fs
+          sudo chown $USER /mnt/bench/fs
+          for i in $(seq -w 0 23); do dd if=/dev/urandom of=/mnt/bench/fs/f$i bs=4M count=32 conv=fsync status=none; done
+          rm /mnt/bench/fs/f00 /mnt/bench/fs/f01 /mnt/bench/fs/f02 /mnt/bench/fs/f04 /mnt/bench/fs/f05 /mnt/bench/fs/f06
+          sync
+          sudo btrfs filesystem usage -b /mnt/bench/fs
+          sudo btrfs filesystem df -b /mnt/bench/fs
+          sudo umount /mnt/bench/fs; sudo losetup -d $dev
+      - name: Original vs first patch vs current patch (3 boots)
+        run: |
+          echo "label,boot,seconds,written_mib,unallocated_gain_mib" | tee small.csv
+          sudo bash script.sh original big-btrfs-balance.orig | tee -a small.csv
+          sudo bash script.sh patched-v1 big-btrfs-balance.patched-v1 | tee -a small.csv
+          sudo bash script.sh patched big-btrfs-balance.patched | tee -a small.csv
+          cat /mnt/bench/script-*.log
+          grep -c ERROR /mnt/bench/script-*.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: small
+          path: |
+            small.csv
+            /mnt/bench/script-*.log
