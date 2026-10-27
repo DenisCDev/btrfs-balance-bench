@@ -22,7 +22,13 @@ written() { awk '{print $7}' /sys/block/$name/stat; }
 for pass in 1 2 3; do
     sync; echo 3 > /proc/sys/vm/drop_caches
     u0=$(unalloc); w0=$(written); t0=$(date +%s.%N)
-    bash /tmp/under-test >/dev/null 2>&1
+    {
+        echo "== $label boot $pass"
+        btrfs filesystem df -b $W/fs
+        uuid=$(findmnt -no UUID $W/fs)
+        for t in data metadata; do echo "chunk_size $t: $(cat /sys/fs/btrfs/$uuid/allocation/$t/chunk_size)"; done
+        bash -x /tmp/under-test 2>&1 | grep -E "balance start|^Done|ERROR|rror" || echo "(no balance started)"
+    } >> $W/script-$label.log
     sync
     t1=$(date +%s.%N); w1=$(written); u1=$(unalloc)
     printf '%s,%s,%.2f,%d,%d\n' "$label" "$pass" "$(bc <<<"$t1 - $t0")" \
