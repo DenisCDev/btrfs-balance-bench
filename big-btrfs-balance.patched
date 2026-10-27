@@ -9,18 +9,15 @@ FolderHome=$(btrfs device stats /home | tail -n1 | cut -f1 -d] | cut -f2 -d[)
 
 # A usage filter also picks the last, partly filled chunk that the previous
 # balance just packed, so a filesystem that changed little since then has the
-# same data rewritten on every boot and frees nothing. Only balance a type
-# whose allocated-but-unused space adds up to at least one of its chunks; when
-# the kernel does not report the chunk size, balance it as before.
+# same data rewritten on every boot and frees nothing. Freeing a chunk needs
+# at least a chunk of allocated-but-unused space: data chunks are 1 GiB on any
+# filesystem of 10 GiB or more, metadata chunks 256 MiB or larger.
 balance() {
-    local uuid type slack chunk filters=()
-    uuid=$(findmnt -no UUID "$1")
+    local type slack filters=()
     while read -r type slack; do
-        chunk=$(cat "/sys/fs/btrfs/$uuid/allocation/${type,,}/chunk_size" 2>/dev/null) && [[ $chunk ]] || chunk=0
-        (( slack >= chunk )) || continue
         case $type in
-            Data) filters+=(-dusage=50) ;;
-            Metadata) filters+=(-musage=50) ;;
+            Data) (( slack >= 1073741824 )) && filters+=(-dusage=50) ;;
+            Metadata) (( slack >= 268435456 )) && filters+=(-musage=50) ;;
             Data+Metadata) filters+=(-dusage=50 -musage=50) ;;
         esac
     done < <(btrfs filesystem df -b "$1" | awk -F'[ ,=]+' '$1 == "Data" || $1 == "Metadata" || $1 == "Data+Metadata" {
